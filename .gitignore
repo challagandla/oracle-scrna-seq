@@ -1,0 +1,60 @@
+# ── Data (never commit raw or processed sequencing data) ─────────────────────
+data/**
+!data/.gitkeep
+results/**
+!results/.gitkeep
+logs/**
+!logs/.gitkeep
+*.h5
+*.h5ad
+*.loom
+*.mtx
+*.mtx.gz
+*.tsv.gz
+*.bam
+*.bai
+*.fastq.gz
+*.fq.gz
+
+# ── Conda environments (reproduced from envs/*.yaml) ─────────────────────────
+.snakemake/
+.conda/
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb~
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Temporary files ──────────────────────────────────────────────────────────
+*.tmp
+_tmp_*
+*.log
+
+# ── Secrets ──────────────────────────────────────────────────────────────────
+.env
+*.pem
+*.key
+secrets.yaml

@@ -1,0 +1,87 @@
+# ============================================================
+# scRNA-seq Pipeline Configuration
+# ============================================================
+# Edit this file to customise every step.
+# All paths are relative to the repository root.
+
+# ── Input ────────────────────────────────────────────────────
+samples_tsv: "config/samples.tsv"   # sample sheet (see below)
+
+# ── Species ──────────────────────────────────────────────────
+species: "human"          # "human" or "mouse"
+# Gene-name prefixes are derived automatically from species.
+# Override below if using another organism:
+mt_prefix:   ""           # leave "" to auto-detect (MT- / mt-)
+ribo_prefix: ""           # leave "" to auto-detect (RPL/RPS / Rpl/Rps)
+hb_pattern:  ""           # leave "" to auto-detect
+
+# ── Step 00 — Quality Control ────────────────────────────────
+qc:
+  mad_counts:   5         # MAD multiplier for total counts (log-scale)
+  mad_genes:    5         # MAD multiplier for gene counts (log-scale)
+  mad_mt:       3         # MAD multiplier for mitochondrial %
+  mt_hard:      8         # hard MT% ceiling (raise to 15 for neurons)
+  min_cells:    20        # gene must appear in ≥ this many cells
+  min_counts:   500       # hard minimum counts per cell (doublet-safe floor)
+  min_genes:    200       # hard minimum genes per cell
+
+# ── Step 01 — Doublet Detection ──────────────────────────────
+doublets:
+  method: "scrublet"      # "scrublet" | "scdblfinder"
+  expected_rate: 0.06     # expected doublet rate per lane (10X: ~0.8% per 1000 cells)
+
+# ── Step 02 — Normalization ───────────────────────────────────
+normalization:
+  method: "log"           # "log" | "scran"
+  target_sum: 10000       # library-size target for log-normalization
+
+# ── Step 03 — HVG & PCA ──────────────────────────────────────
+hvg_pca:
+  n_top_genes: 2000       # number of highly variable genes
+  flavor: "seurat_v3"     # "seurat_v3" | "seurat" | "cell_ranger"
+  n_pcs: 50               # PCA components to compute
+  n_pcs_use: 30           # PCs to use downstream (see elbow plot)
+
+# ── Step 04 — Batch Correction ───────────────────────────────
+batch:
+  batch_key: ""           # obs column with batch labels; "" = skip
+  method: "harmony"       # "harmony" | "scvi" | "combat"
+  n_latent: 30            # scVI latent dimensions
+
+# ── Step 05 — Neighbors & UMAP ───────────────────────────────
+embedding:
+  n_neighbors: 15
+  metric: "euclidean"
+  min_dist: 0.3
+  spread: 1.0
+  # use_rep is set automatically based on batch.method;
+  # override here if needed:
+  use_rep: ""             # "" = auto | "X_pca" | "X_pca_corrected" | "X_scVI"
+
+# ── Step 06 — Clustering ─────────────────────────────────────
+clustering:
+  resolutions: [0.2, 0.4, 0.6, 0.8, 1.0, 1.2]
+  default_resolution: 0.6   # stored as adata.obs["leiden"]
+
+# ── Step 07 — Markers & DE ───────────────────────────────────
+markers:
+  method: "wilcoxon"      # "wilcoxon" | "t-test" | "logreg"
+  n_genes: 50             # top N marker genes to store per cluster
+  logfc_min: 0.25         # minimum log2 fold-change filter
+  pct_min: 0.1            # minimum fraction of cells expressing gene
+  # Condition DE (pseudobulk via pydeseq2):
+  condition_key: ""       # obs column; "" = skip condition DE
+  group1: ""              # reference group label
+  group2: ""              # test group label
+
+# ── Step 08 — Annotation ─────────────────────────────────────
+annotation:
+  markers_json: ""        # path to custom JSON {cell_type: [gene,…]}; "" = built-in PBMC
+  celltypist: false       # run CellTypist automated classification
+  celltypist_model: "Immune_All_Low.pkl"
+  manual_tsv: ""          # path to cluster→cell_type TSV; "" = skip
+
+# ── Step 09 — Trajectory (optional) ─────────────────────────
+trajectory:
+  run_paga: false
+  loom_file: ""           # path to velocyto .loom; "" = skip scVelo

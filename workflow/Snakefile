@@ -1,0 +1,68 @@
+"""
+scRNA-seq Analysis Pipeline — Snakemake Entry Point
+====================================================
+Usage (from repo root):
+    snakemake --use-conda --cores 8
+    snakemake --use-conda --cores 8 --config species=mouse
+    snakemake --use-conda --cores 8 --until cluster   # partial run
+    snakemake --dag | dot -Tsvg > dag.svg              # visualize DAG
+
+Dry-run:
+    snakemake -n --use-conda
+"""
+
+from pathlib import Path
+import pandas as pd
+
+# ── Config ────────────────────────────────────────────────────────────────────
+configfile: "config/config.yaml"
+
+# ── Sample sheet ─────────────────────────────────────────────────────────────
+samples = pd.read_csv(config["samples_tsv"], sep="\t", dtype=str)
+SAMPLES  = samples["sample"].tolist()
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def get_sample_path(wildcards):
+    return samples.loc[samples["sample"] == wildcards.sample, "path"].iloc[0]
+
+def use_rep():
+    """Determine embedding key based on batch correction choice."""
+    if not config["batch"]["batch_key"]:
+        return "X_pca"
+    method = config["batch"]["method"]
+    return {"harmony": "X_pca_corrected", "scvi": "X_scVI", "combat": "X_pca"}[method]
+
+# ── Include rule modules ──────────────────────────────────────────────────────
+include: "rules/qc.smk"
+include: "rules/doublets.smk"
+include: "rules/normalize.smk"
+include: "rules/hvg_pca.smk"
+include: "rules/batch.smk"
+include: "rules/embedding.smk"
+include: "rules/cluster.smk"
+include: "rules/markers.smk"
+include: "rules/annotate.smk"
+include: "rules/trajectory.smk"
+include: "rules/report.smk"
+
+# ── Default target ────────────────────────────────────────────────────────────
+rule all:
+    input:
+        # Per-sample QC + doublet removal
+        expand("results/{sample}/01_doublets/no_doublets.h5ad", sample=SAMPLES),
+        # Merged & normalized
+        "results/merged/02_normalize/normalized.h5ad",
+        # HVG + PCA
+        "results/merged/03_hvg_pca/hvg_pca.h5ad",
+        # Batch-corrected (or copy if no batch)
+        "results/merged/04_batch/batch_corrected.h5ad",
+        # Embedding
+        "results/merged/05_embedding/embedded.h5ad",
+        # Clustering
+        "results/merged/06_cluster/clustered.h5ad",
+        # Marker genes
+        "results/merged/07_markers/with_markers.h5ad",
+        # Cell type annotation
+        "results/merged/08_annotate/annotated.h5ad",
+        # HTML report
+        "results/report.html",

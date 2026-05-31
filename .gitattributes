@@ -1,0 +1,10 @@
+# Ensure Unix line endings (LF) for all text files,
+# regardless of the OS they are edited on.
+* text=auto eol=lf
+
+# Explicitly mark binary files
+*.h5     binary
+*.h5ad   binary
+*.loom   binary
+*.png    binary
+*.pdf    binary

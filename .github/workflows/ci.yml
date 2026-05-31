@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Lint with ruff
+        run: ruff check scripts/ tests/ --ignore E501
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-variant: Mambaforge
+          miniforge-version: latest
+          activate-environment: scrna
+          environment-file: envs/scrna.yaml
+          auto-activate-base: false
+          use-mamba: true
+
+      - name: Run tests
+        shell: bash -l {0}
+        run: |
+          conda activate scrna
+          pytest tests/ -v --tb=short
+
+  snakemake-dryrun:
+    name: Snakemake dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-variant: Mambaforge
+          miniforge-version: latest
+          activate-environment: scrna
+          environment-file: envs/scrna.yaml
+          auto-activate-base: false
+          use-mamba: true
+
+      - name: Snakemake dry-run
+        shell: bash -l {0}
+        run: |
+          conda activate scrna
+          snakemake -n --use-conda --config \
+            samples_tsv=config/samples.tsv \
+          2>&1 | head -60

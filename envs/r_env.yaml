@@ -1,0 +1,17 @@
+name: scrna_r
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - r-base=4.3
+  - bioconductor-scdblfinder>=1.16
+  - bioconductor-singlecellexperiment>=1.24
+  - bioconductor-zellkonverter>=1.12   # read/write .h5ad from R
+  - bioconductor-scran>=1.30           # scran normalization
+  - bioconductor-scater>=1.30
+  - r-biocmanager
+  - r-matrix
+  - rpy2>=3.5                          # Python ↔ R bridge
+  - pip:
+    - rpy2>=3.5

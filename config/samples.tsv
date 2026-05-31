@@ -1,0 +1,5 @@
+sample	path	batch	condition	description
+pbmc_ctrl	data/pbmc_ctrl_raw.h5ad	batch1	control	PBMC donor 1, untreated
+pbmc_treat	data/pbmc_treat_raw.h5ad	batch1	treated	PBMC donor 1, stimulated
+brain_s1	data/brain_s1_raw.h5	batch2	WT	Mouse cortex sample 1
+brain_s2	data/brain_s2_raw.h5	batch2	KO	Mouse cortex sample 2
