@@ -1,0 +1,11 @@
+name: raw_fastq_qc
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.11
+  - fastqc
+  - fastq-screen
+  - bowtie2
+  - multiqc

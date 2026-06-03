@@ -1,0 +1,12 @@
+# FastQ Screen contamination database template.
+# Copy this file to config/fastq_screen.conf and replace all /path/to entries.
+# DATABASE entries must point to Bowtie2 index prefixes, not individual .bt2 files.
+
+BOWTIE2 bowtie2
+
+DATABASE Human /path/to/hg38/bowtie2/hg38
+DATABASE Mouse /path/to/mm39/bowtie2/mm39
+DATABASE Rat /path/to/rn6/bowtie2/rn6
+DATABASE PhiX /path/to/phix/bowtie2/phix
+DATABASE E_coli /path/to/ecoli/bowtie2/ecoli
+DATABASE Yeast /path/to/sacCer3/bowtie2/sacCer3

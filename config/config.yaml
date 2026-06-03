@@ -7,6 +7,15 @@
 # ── Input ────────────────────────────────────────────────────
 samples_tsv: "config/samples.tsv"   # sample sheet (see below)
 
+# ── Optional raw FASTQ QC + contamination screening ───────────
+# This pipeline primarily starts from count matrices (.h5ad, 10X .h5, or MEX).
+# Add raw_fastq_r1/raw_fastq_r2 columns to config/samples.tsv to enable these
+# upstream QC checks for samples that still have raw FASTQs available.
+raw_fastq_qc:
+  enabled: true
+  fastq_screen_conf: "config/fastq_screen.conf.example"
+  fastq_screen_subset: 100000
+
 # ── Species ──────────────────────────────────────────────────
 species: "human"          # "human" or "mouse"
 # Gene-name prefixes are derived automatically from species.

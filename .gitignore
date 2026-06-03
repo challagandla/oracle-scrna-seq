@@ -16,6 +16,9 @@ logs/**
 *.fastq.gz
 *.fq.gz
 
+# ── Local QC configs ─────────────────────────────────────────────────────────
+config/fastq_screen.conf
+
 # ── Conda environments (reproduced from envs/*.yaml) ─────────────────────────
 .snakemake/
 .conda/

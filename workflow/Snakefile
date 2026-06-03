@@ -21,9 +21,61 @@ configfile: "config/config.yaml"
 samples = pd.read_csv(config["samples_tsv"], sep="\t", dtype=str)
 SAMPLES  = samples["sample"].tolist()
 
+# ── Optional raw FASTQ QC / contamination screening ───────────────────────────
+raw_fastq_qc = config.get("raw_fastq_qc", {})
+RAW_FASTQ_QC_ENABLED = raw_fastq_qc.get("enabled", True)
+FASTQ_SCREEN_CONF = raw_fastq_qc.get("fastq_screen_conf", "config/fastq_screen.conf.example")
+FASTQ_SCREEN_SUBSET = int(raw_fastq_qc.get("fastq_screen_subset", 100000))
+
+
+def _filled(value):
+    return pd.notna(value) and str(value).strip() not in {"", "nan", "None"}
+
+
+HAS_RAW_FASTQ_COLUMNS = {"raw_fastq_r1", "raw_fastq_r2"}.issubset(samples.columns)
+if RAW_FASTQ_QC_ENABLED and HAS_RAW_FASTQ_COLUMNS:
+    raw_fastq_mask = samples["raw_fastq_r1"].map(_filled) & samples["raw_fastq_r2"].map(_filled)
+    RAW_FASTQ_SAMPLES = samples.loc[raw_fastq_mask, "sample"].tolist()
+else:
+    RAW_FASTQ_SAMPLES = []
+
+RAW_FASTQC_HTML = expand(
+    "results/{sample}/raw_fastq_qc/fastqc/{sample}_{read}_fastqc.html",
+    sample=RAW_FASTQ_SAMPLES,
+    read=["R1", "R2"],
+)
+RAW_FASTQC_ZIP = expand(
+    "results/{sample}/raw_fastq_qc/fastqc/{sample}_{read}_fastqc.zip",
+    sample=RAW_FASTQ_SAMPLES,
+    read=["R1", "R2"],
+)
+FASTQ_SCREEN_TEXT = expand(
+    "results/{sample}/raw_fastq_qc/fastq_screen/{sample}_{read}_screen.txt",
+    sample=RAW_FASTQ_SAMPLES,
+    read=["R1", "R2"],
+)
+FASTQ_SCREEN_HTML = expand(
+    "results/{sample}/raw_fastq_qc/fastq_screen/{sample}_{read}_screen.html",
+    sample=RAW_FASTQ_SAMPLES,
+    read=["R1", "R2"],
+)
+RAW_FASTQ_QC_TARGETS = RAW_FASTQC_HTML + FASTQ_SCREEN_TEXT + FASTQ_SCREEN_HTML
+MULTIQC_REPORT = "results/multiqc/multiqc_report.html"
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def get_sample_path(wildcards):
     return samples.loc[samples["sample"] == wildcards.sample, "path"].iloc[0]
+
+
+def get_raw_fastq(wildcards, column):
+    match = samples.loc[samples["sample"] == wildcards.sample, column]
+    if match.empty or not _filled(match.iloc[0]):
+        raise ValueError(
+            f"Sample {wildcards.sample} is missing optional raw FASTQ column {column}. "
+            "Add raw_fastq_r1/raw_fastq_r2 to config/samples.tsv or disable raw_fastq_qc."
+        )
+    return match.iloc[0]
+
 
 def use_rep():
     """Determine embedding key based on batch correction choice."""
@@ -33,6 +85,7 @@ def use_rep():
     return {"harmony": "X_pca_corrected", "scvi": "X_scVI", "combat": "X_pca"}[method]
 
 # ── Include rule modules ──────────────────────────────────────────────────────
+include: "rules/raw_fastq_qc.smk"
 include: "rules/qc.smk"
 include: "rules/doublets.smk"
 include: "rules/normalize.smk"
@@ -48,6 +101,7 @@ include: "rules/report.smk"
 # ── Default target ────────────────────────────────────────────────────────────
 rule all:
     input:
+        RAW_FASTQ_QC_TARGETS,
         # Per-sample QC + doublet removal
         expand("results/{sample}/01_doublets/no_doublets.h5ad", sample=SAMPLES),
         # Merged & normalized
@@ -64,5 +118,6 @@ rule all:
         "results/merged/07_markers/with_markers.h5ad",
         # Cell type annotation
         "results/merged/08_annotate/annotated.h5ad",
-        # HTML report
+        # HTML reports
         "results/report.html",
+        MULTIQC_REPORT,
