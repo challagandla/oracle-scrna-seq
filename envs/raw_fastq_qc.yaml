@@ -5,7 +5,7 @@ channels:
   - defaults
 dependencies:
   - python=3.11
-  - fastqc
-  - fastq-screen
-  - bowtie2
-  - multiqc
+  - fastqc=0.12.1
+  - fastq-screen=0.15.3
+  - bowtie2=2.5.4
+  - multiqc=1.25
