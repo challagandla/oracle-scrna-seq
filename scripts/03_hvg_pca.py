@@ -15,10 +15,11 @@ results/merged/03_hvg_pca/
     04_pca_loadings.png        top contributing genes per PC
 """
 
-import argparse, os, sys
+import argparse
+import os
+import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-import anndata as ad
 import scanpy as sc
 import numpy as np
 import matplotlib
@@ -33,13 +34,15 @@ sc.settings.verbosity = 1
 
 def select_hvg(adata, n_top, flavor, batch_key=None):
     """seurat_v3 expects raw counts; swap in layers['counts'] if available."""
-    import scipy.sparse as sp
+    n_top = min(int(n_top), adata.n_vars)
     if flavor == "seurat_v3" and "counts" in adata.layers:
-        orig_X = adata.X.copy()
+        orig_X = adata.X
         adata.X = adata.layers["counts"].copy()
-        sc.pp.highly_variable_genes(adata, n_top_genes=n_top, flavor=flavor,
-                                    batch_key=batch_key or None, subset=False)
-        adata.X = orig_X
+        try:
+            sc.pp.highly_variable_genes(adata, n_top_genes=n_top, flavor=flavor,
+                                        batch_key=batch_key or None, subset=False)
+        finally:
+            adata.X = orig_X
     else:
         sc.pp.highly_variable_genes(adata, n_top_genes=n_top, flavor=flavor,
                                     batch_key=batch_key or None, subset=False)
@@ -48,17 +51,21 @@ def select_hvg(adata, n_top, flavor, batch_key=None):
 
 
 def plot_hvg_dispersion(adata, path):
-    fig, ax = plt.subplots(figsize=(6, 4))
-    sc.pl.highly_variable_genes(adata, ax=ax, show=False)
+    sc.pl.highly_variable_genes(adata, show=False)
+    fig = plt.gcf()
+    fig.set_size_inches(6, 4)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
-def run_pca(adata, n_comps):
+def run_pca(adata, n_comps, seed=42):
     hvg_adata = adata[:, adata.var["highly_variable"]].copy()
+    n_comps = min(int(n_comps), hvg_adata.n_obs - 1, hvg_adata.n_vars - 1)
+    if n_comps < 2:
+        raise ValueError("PCA requires at least 3 cells and 3 selected HVGs")
     sc.pp.scale(hvg_adata, max_value=10)
-    sc.tl.pca(hvg_adata, n_comps=n_comps, svd_solver="arpack")
+    sc.tl.pca(hvg_adata, n_comps=n_comps, svd_solver="arpack", random_state=seed)
     # Copy results back to full adata
     adata.obsm["X_pca"] = hvg_adata.obsm["X_pca"]
     adata.varm["PCs"]   = np.zeros((adata.n_vars, n_comps))
@@ -66,6 +73,7 @@ def run_pca(adata, n_comps):
     adata.varm["PCs"][hvg_idx] = hvg_adata.varm["PCs"]
     adata.uns["pca"]    = hvg_adata.uns["pca"]
     print(f"PCA: {n_comps} components computed")
+    return n_comps
 
 
 def plot_pca_qc(adata, path):
@@ -75,7 +83,7 @@ def plot_pca_qc(adata, path):
     if n == 0:
         return
     fig, axes = plt.subplots(1, n, figsize=(5 * n, 4), squeeze=False)
-    for ax, c in zip(axes[0], qc_cols):
+    for ax, c in zip(axes[0], qc_cols, strict=True):
         sc.pl.pca(adata, color=c, ax=ax, show=False, title=c)
     plt.tight_layout()
     fig.savefig(path, dpi=150, bbox_inches="tight")
@@ -109,8 +117,8 @@ def main(args):
                batch_key=args.batch_key or None)
     plot_hvg_dispersion(adata, os.path.join(fig_dir, "01_hvg_dispersion.png"))
 
-    run_pca(adata, n_comps=args.n_pcs)
-    plot_elbow(adata, n_pcs_use=args.n_pcs_use,
+    n_comps = run_pca(adata, n_comps=args.n_pcs, seed=args.seed)
+    plot_elbow(adata, n_pcs_use=min(args.n_pcs_use, n_comps),
                path=os.path.join(fig_dir, "02_pca_elbow.png"))
     plot_pca_qc(adata, os.path.join(fig_dir, "03_pca_scatter_qc.png"))
     plot_pca_loadings(adata, n_top=15,
@@ -130,4 +138,5 @@ if __name__ == "__main__":
     p.add_argument("--n-pcs-use",    type=int, default=30,
                    help="PCs to use downstream (marked on elbow plot)")
     p.add_argument("--batch-key",    default="")
+    p.add_argument("--seed",         type=int, default=42)
     main(p.parse_args())

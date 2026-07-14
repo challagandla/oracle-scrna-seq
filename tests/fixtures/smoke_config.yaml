@@ -1,0 +1,52 @@
+samples_tsv: ".test/data/samples.tsv"
+results_dir: ".test/results"
+logs_dir: ".test/logs"
+random_seed: 42
+provenance: {hash_inputs: false}
+raw_fastq_qc:
+  enabled: false
+  fastq_screen_conf: "config/fastq_screen.conf.example"
+  fastq_screen_subset: 1000
+  fastq_screen_reads: ["R2"]
+species: "human"
+mt_prefix: ""
+ribo_prefix: ""
+hb_pattern: ""
+qc:
+  mad_counts: 8
+  mad_genes: 8
+  mad_mt: 8
+  mt_hard: 100
+  min_cells: 3
+  min_counts: 0
+  min_genes: 0
+doublets:
+  method: "scrublet"
+  expected_rate: 0.03
+normalization: {method: "log", target_sum: 10000}
+hvg_pca: {n_top_genes: 100, flavor: "seurat_v3", n_pcs: 20, n_pcs_use: 15}
+batch: {batch_key: "", method: "none", n_latent: 10}
+embedding: {n_neighbors: 10, metric: "euclidean", min_dist: 0.3, spread: 1.0, use_rep: ""}
+clustering: {resolutions: [0.2, 0.5], default_resolution: 0.5}
+markers:
+  method: "wilcoxon"
+  n_genes: 20
+  logfc_min: 0.1
+  pct_min: 0.05
+  condition_key: ""
+  group1: ""
+  group2: ""
+  covariates: []
+  min_cells_per_sample: 10
+  min_replicates_per_group: 2
+  min_total_count: 10
+annotation:
+  marker_set: ""
+  markers_json: ""
+  min_marker_coverage: 0.5
+  min_score_margin: 0.1
+  celltypist: false
+  celltypist_model: "Immune_All_Low.pkl"
+  celltypist_min_confidence: 0.5
+  manual_tsv: ""
+trajectory: {run_paga: false, loom_file: "", barcode_map_tsv: "", min_shared_cells: 20}

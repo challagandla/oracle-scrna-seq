@@ -17,10 +17,12 @@ results/merged/02_normalize/
     03_mean_variance_trend.png        (scran only)
 """
 
-import argparse, os, sys
+import argparse
+import os
+import sys
+import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-import anndata as ad
 import scanpy as sc
 import numpy as np
 import matplotlib
@@ -28,6 +30,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from utils.io_utils import load_adata, save_adata
+from utils.validation import validate_raw_counts
 
 sc.settings.verbosity = 1
 
@@ -35,15 +38,21 @@ sc.settings.verbosity = 1
 def plot_count_dist(adata, title, path):
     fig, axes = plt.subplots(1, 2, figsize=(9, 3.5))
     import scipy.sparse as sp
-    data = adata.X.toarray() if sp.issparse(adata.X) else np.array(adata.X)
-    cell_sums = data.sum(axis=1)
+    data = adata.X
+    cell_sums = (
+        np.asarray(data.sum(axis=1)).ravel()
+        if sp.issparse(data)
+        else np.asarray(data).sum(axis=1)
+    )
     axes[0].hist(cell_sums, bins=60, color="steelblue", edgecolor="none", alpha=0.8)
-    axes[0].set_xlabel("Total counts per cell"); axes[0].set_title("Library sizes")
+    axes[0].set_xlabel("Total counts per cell")
+    axes[0].set_title("Library sizes")
 
     # Random sample of genes
-    gene_means = data.mean(axis=0)
+    gene_means = np.asarray(data.mean(axis=0)).ravel()
     axes[1].hist(np.log1p(gene_means), bins=60, color="salmon", edgecolor="none", alpha=0.8)
-    axes[1].set_xlabel("log(mean count + 1)"); axes[1].set_title("Gene mean expression")
+    axes[1].set_xlabel("log(mean count + 1)")
+    axes[1].set_title("Gene mean expression")
 
     fig.suptitle(title)
     plt.tight_layout()
@@ -56,16 +65,15 @@ def normalize_log(adata, target_sum=1e4):
     adata.layers["counts"] = adata.X.copy()
     sc.pp.normalize_total(adata, target_sum=target_sum)
     sc.pp.log1p(adata)
+    adata.X = adata.X.astype(np.float32)
     adata.raw = adata  # freeze for DE testing
     print(f"Log-normalization complete (target_sum={target_sum:.0f})")
 
 
-def normalize_scran(adata):
+def normalize_scran(adata, seed=42):
     """Scran pooling-based size factors via rpy2."""
     try:
         import rpy2.robjects as ro
-        from rpy2.robjects import numpy2ri
-        numpy2ri.activate()
     except ImportError:
         sys.exit("rpy2 required for scran. Use --method log or install rpy2.")
 
@@ -78,21 +86,38 @@ def normalize_scran(adata):
     sc.pp.normalize_total(adata_tmp, target_sum=1e4)
     sc.pp.log1p(adata_tmp)
     sc.pp.highly_variable_genes(adata_tmp, n_top_genes=2000)
-    sc.pp.pca(adata_tmp, n_comps=20)
-    sc.pp.neighbors(adata_tmp, n_neighbors=10)
-    sc.tl.leiden(adata_tmp, resolution=0.5, key_added="_precluster")
+    n_comps = min(20, adata_tmp.n_obs - 1, adata_tmp.n_vars - 1)
+    if n_comps < 2:
+        raise ValueError("scran requires at least 3 cells and 3 genes")
+    sc.pp.pca(adata_tmp, n_comps=n_comps)
+    sc.pp.neighbors(adata_tmp, n_neighbors=min(10, adata_tmp.n_obs - 1))
+    sc.tl.leiden(adata_tmp, resolution=0.5, key_added="_precluster", random_state=seed)
     clusters = adata_tmp.obs["_precluster"].astype(int).values + 1
 
-    mat = adata.X.toarray() if sp.issparse(adata.X) else adata.X.astype(float)
-    ro.r.assign("counts_r",   mat.T)
-    ro.r.assign("clusters_r", clusters)
-    ro.r("""
-        suppressPackageStartupMessages(library(scran))
-        sce <- SingleCellExperiment::SingleCellExperiment(list(counts=counts_r))
-        sf  <- calculateSumFactors(sce, clusters=clusters_r)
-        size_factors <- as.numeric(sf)
-    """)
+    # Let zellkonverter preserve the sparse matrix instead of materializing a
+    # cells×genes dense array in Python/R memory.
+    with tempfile.TemporaryDirectory(prefix="scran-") as tmp_dir:
+        tmp_h5ad = os.path.join(tmp_dir, "counts.h5ad")
+        adata.write_h5ad(tmp_h5ad)
+        ro.globalenv["h5ad_path"] = ro.StrVector([tmp_h5ad])
+        ro.globalenv["clusters_r"] = ro.IntVector(clusters.tolist())
+        ro.globalenv["seed_r"] = ro.IntVector([seed])
+        ro.r("""
+            suppressPackageStartupMessages({
+                library(scran)
+                library(zellkonverter)
+                library(SingleCellExperiment)
+            })
+            set.seed(seed_r[[1]])
+            sce <- readH5AD(h5ad_path)
+            if (!("counts" %in% assayNames(sce))) {
+                counts(sce) <- assay(sce, "X")
+            }
+            size_factors <- as.numeric(calculateSumFactors(sce, clusters=clusters_r))
+        """)
     sf = np.array(ro.r["size_factors"])
+    if not np.isfinite(sf).all() or (sf <= 0).any():
+        raise ValueError("scran returned non-finite or non-positive size factors")
     adata.obs["size_factor"] = sf
 
     if sp.issparse(adata.X):
@@ -102,6 +127,7 @@ def normalize_scran(adata):
         adata.X = adata.X / sf[:, None]
 
     sc.pp.log1p(adata)
+    adata.X = adata.X.astype(np.float32)
     adata.raw = adata
     print("Scran normalization complete")
 
@@ -111,13 +137,14 @@ def main(args):
     os.makedirs(fig_dir, exist_ok=True)
 
     adata = load_adata(args.input)
+    validate_raw_counts(adata, context=args.input)
     plot_count_dist(adata, "Before normalization",
                     os.path.join(fig_dir, "01_count_distribution_before.png"))
 
     if args.method == "log":
         normalize_log(adata, target_sum=args.target_sum)
     elif args.method == "scran":
-        normalize_scran(adata)
+        normalize_scran(adata, seed=args.seed)
 
     plot_count_dist(adata, "After normalization",
                     os.path.join(fig_dir, "02_count_distribution_after.png"))
@@ -131,4 +158,5 @@ if __name__ == "__main__":
     p.add_argument("--out",         default="results/merged/02_normalize")
     p.add_argument("--method",      choices=["log", "scran"], default="log")
     p.add_argument("--target-sum",  type=float, default=1e4)
+    p.add_argument("--seed",        type=int, default=42)
     main(p.parse_args())

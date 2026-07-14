@@ -4,11 +4,21 @@ Rule: Quality Control — per sample
 
 rule qc:
     input:
-        h5 = get_sample_path
+        h5 = get_sample_path,
+        code = [
+            "scripts/00_qc.py",
+            "scripts/utils/io_utils.py",
+            "scripts/utils/plot_utils.py",
+            "scripts/utils/qc_utils.py",
+            "scripts/utils/validation.py",
+        ]
     output:
-        h5ad  = "results/{sample}/00_qc/qc_filtered.h5ad",
-        stats = "results/{sample}/00_qc/qc_stats.json",
-        figs  = directory("results/{sample}/00_qc/figures")
+        h5ad  = result_path("{sample}/00_qc/qc_filtered.h5ad"),
+        stats = result_path("{sample}/00_qc/qc_stats.json"),
+        figs  = directory(result_path("{sample}/00_qc/figures"))
+    threads: resource_value("qc", "threads")
+    resources:
+        mem_mb=resource_value("qc", "mem_mb")
     params:
         mt_prefix   = lambda _: config.get("mt_prefix") or
                       ("mt-" if config["species"] == "mouse" else "MT-"),
@@ -24,23 +34,24 @@ rule qc:
         min_counts  = config["qc"]["min_counts"],
         min_genes   = config["qc"]["min_genes"],
     log:
-        "logs/{sample}/00_qc.log"
+        log_path("{sample}/00_qc.log")
     conda:
         "../../envs/scrna.yaml"
     shell:
         """
+        mkdir -p "$(dirname {log:q})"
         python scripts/00_qc.py \
-            {input.h5} \
-            --out $(dirname {output.h5ad}) \
-            --mt-prefix {params.mt_prefix} \
-            --ribo-prefix {params.ribo_prefix} \
-            --hb-pattern "{params.hb_pattern}" \
+            {input.h5:q} \
+            --out "$(dirname {output.h5ad:q})" \
+            --mt-prefix {params.mt_prefix:q} \
+            --ribo-prefix {params.ribo_prefix:q} \
+            --hb-pattern {params.hb_pattern:q} \
             --mad-counts {params.mad_counts} \
             --mad-genes {params.mad_genes} \
             --mad-mt {params.mad_mt} \
             --mt-hard {params.mt_hard} \
-            --min-cells {params.min_cells} \
+            --min-cells 0 \
             --min-counts {params.min_counts} \
             --min-genes {params.min_genes} \
-        > {log} 2>&1
+        > {log:q} 2>&1
         """

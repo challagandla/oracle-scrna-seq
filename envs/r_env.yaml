@@ -2,8 +2,18 @@ name: scrna_r
 channels:
   - conda-forge
   - bioconda
-  - defaults
+  - nodefaults
 dependencies:
+  - python=3.11
+  - numpy>=1.26
+  - scipy>=1.12
+  - pandas>=2.1
+  - matplotlib>=3.8
+  - anndata>=0.10
+  - scanpy>=1.10
+  - leidenalg>=0.10
+  - python-igraph>=0.11
+  - h5py>=3.10
   - r-base=4.3
   - bioconductor-scdblfinder>=1.16
   - bioconductor-singlecellexperiment>=1.24
@@ -13,5 +23,3 @@ dependencies:
   - r-biocmanager
   - r-matrix
   - rpy2>=3.5                          # Python ↔ R bridge
-  - pip:
-    - rpy2>=3.5
