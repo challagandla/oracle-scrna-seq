@@ -1,18 +1,19 @@
-"""
-Lightweight unit tests for pipeline utility functions.
-Run with:  pytest tests/ -v
-"""
+"""Lightweight unit tests for pipeline utility functions."""
 
+from pathlib import Path
+
+import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
-import anndata as ad
 import scipy.sparse as sp
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from utils.qc_utils import (
-    annotate_qc_vars, build_filter_mask, summarise_qc, mad_bounds
+    annotate_qc_vars,
+    build_filter_mask,
+    calculate_qc_metrics,
+    mad_bounds,
+    summarise_qc,
 )
 
 
@@ -48,14 +49,32 @@ def test_annotate_qc_vars(tiny_adata):
 
 
 def test_calculate_qc_metrics(tiny_adata):
-    import scanpy as sc
     annotate_qc_vars(tiny_adata, mt_prefix="MT-")
-    sc.pp.calculate_qc_metrics(
-        tiny_adata, qc_vars=["mt", "ribo", "hb"],
-        percent_top=None, log1p=False, inplace=True)
+    calculate_qc_metrics(tiny_adata)
     assert "total_counts" in tiny_adata.obs.columns
     assert "pct_counts_mt" in tiny_adata.obs.columns
     assert tiny_adata.obs["total_counts"].min() > 0
+
+
+@pytest.mark.parametrize(
+    ("n_vars", "expected"),
+    [(19, None), (21, [20]), (75, [20, 50]), (101, [20, 50, 100])],
+)
+def test_calculate_qc_metrics_bounds_percent_top(monkeypatch, n_vars, expected):
+    captured = {}
+
+    class TinyShape:
+        pass
+
+    adata = TinyShape()
+    adata.n_vars = n_vars
+
+    def fake_calculate(*args, **kwargs):
+        captured["percent_top"] = kwargs["percent_top"]
+
+    monkeypatch.setattr("utils.qc_utils.sc.pp.calculate_qc_metrics", fake_calculate)
+    calculate_qc_metrics(adata)
+    assert captured["percent_top"] == expected
 
 
 def test_mad_bounds_log(tiny_adata):
@@ -122,3 +141,22 @@ def test_load_save_roundtrip(tmp_path, tiny_adata):
     loaded = load_adata(path)
     assert loaded.n_obs == tiny_adata.n_obs
     assert loaded.n_vars == tiny_adata.n_vars
+
+
+def test_save_adata_keeps_existing_file_when_write_fails(tmp_path, tiny_adata, monkeypatch):
+    from utils.io_utils import save_adata
+
+    path = tmp_path / "stable.h5ad"
+    path.write_bytes(b"previous-complete-result")
+
+    def fail_after_partial_write(self, destination):
+        del self
+        Path(destination).write_bytes(b"partial")
+        raise RuntimeError("simulated interrupted write")
+
+    monkeypatch.setattr(ad.AnnData, "write_h5ad", fail_after_partial_write)
+    with pytest.raises(RuntimeError, match="simulated interrupted write"):
+        save_adata(tiny_adata, str(path))
+
+    assert path.read_bytes() == b"previous-complete-result"
+    assert not list(tmp_path.glob(".*.tmp.h5ad"))

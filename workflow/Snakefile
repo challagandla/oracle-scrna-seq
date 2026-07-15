@@ -12,13 +12,70 @@ Dry-run:
 """
 
 from pathlib import Path
+import hashlib
+import json
+import subprocess
+import sys
 import pandas as pd
+import yaml
 
 # ── Config ────────────────────────────────────────────────────────────────────
 configfile: "config/config.yaml"
 
+RESULTS_DIR = str(config.get("results_dir", "results")).rstrip("/")
+LOGS_DIR = str(config.get("logs_dir", "logs")).rstrip("/")
+CONFIG_DIGEST = hashlib.sha256(
+    json.dumps(config, sort_keys=True, default=str).encode("utf-8")
+).hexdigest()
+
+try:
+    GIT_COMMIT = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+except (OSError, subprocess.CalledProcessError):
+    GIT_COMMIT = "unavailable"
+
+RESOURCE_DEFAULTS = {
+    "raw_fastqc": {"threads": 2, "mem_mb": 4000},
+    "fastq_screen": {"threads": 4, "mem_mb": 8000},
+    "multiqc": {"threads": 1, "mem_mb": 4000},
+    "qc": {"threads": 1, "mem_mb": 8000},
+    "doublets": {"threads": 2, "mem_mb": 12000},
+    "merge": {"threads": 1, "mem_mb": 16000},
+    "normalize": {"threads": 2, "mem_mb": 32000},
+    "hvg_pca": {"threads": 2, "mem_mb": 16000},
+    "batch": {"threads": 4, "mem_mb": 32000},
+    "embedding": {"threads": 4, "mem_mb": 16000},
+    "cluster": {"threads": 4, "mem_mb": 16000},
+    "markers": {"threads": 4, "mem_mb": 24000},
+    "annotate": {"threads": 4, "mem_mb": 16000},
+    "trajectory": {"threads": 4, "mem_mb": 32000},
+    "report": {"threads": 1, "mem_mb": 8000},
+}
+
+
+def resource_value(rule_name, key):
+    override = config.get("resources", {}).get(rule_name, {}).get(key)
+    value = override if override is not None else RESOURCE_DEFAULTS[rule_name][key]
+    return int(value)
+
+
+def result_path(path):
+    return f"{RESULTS_DIR}/{path}"
+
+
+def log_path(path):
+    return f"{LOGS_DIR}/{path}"
+
 # ── Sample sheet ─────────────────────────────────────────────────────────────
 samples = pd.read_csv(config["samples_tsv"], sep="\t", dtype=str)
+sys.path.insert(0, str(Path("scripts").resolve()))
+from validate_config import validate_project
+
+validate_project(config, samples)
 SAMPLES  = samples["sample"].tolist()
 
 # ── Optional raw FASTQ QC / contamination screening ───────────────────────────
@@ -26,6 +83,7 @@ raw_fastq_qc = config.get("raw_fastq_qc", {})
 RAW_FASTQ_QC_ENABLED = raw_fastq_qc.get("enabled", True)
 FASTQ_SCREEN_CONF = raw_fastq_qc.get("fastq_screen_conf", "config/fastq_screen.conf.example")
 FASTQ_SCREEN_SUBSET = int(raw_fastq_qc.get("fastq_screen_subset", 100000))
+FASTQ_SCREEN_READS = raw_fastq_qc.get("fastq_screen_reads", ["R2"])
 
 
 def _filled(value):
@@ -40,27 +98,34 @@ else:
     RAW_FASTQ_SAMPLES = []
 
 RAW_FASTQC_HTML = expand(
-    "results/{sample}/raw_fastq_qc/fastqc/{sample}_{read}_fastqc.html",
+    result_path("{sample}/raw_fastq_qc/fastqc/{sample}_{read}_fastqc.html"),
     sample=RAW_FASTQ_SAMPLES,
     read=["R1", "R2"],
 )
 RAW_FASTQC_ZIP = expand(
-    "results/{sample}/raw_fastq_qc/fastqc/{sample}_{read}_fastqc.zip",
+    result_path("{sample}/raw_fastq_qc/fastqc/{sample}_{read}_fastqc.zip"),
     sample=RAW_FASTQ_SAMPLES,
     read=["R1", "R2"],
 )
 FASTQ_SCREEN_TEXT = expand(
-    "results/{sample}/raw_fastq_qc/fastq_screen/{sample}_{read}_screen.txt",
+    result_path("{sample}/raw_fastq_qc/fastq_screen/{sample}_{read}_screen.txt"),
     sample=RAW_FASTQ_SAMPLES,
-    read=["R1", "R2"],
+    read=FASTQ_SCREEN_READS,
 )
 FASTQ_SCREEN_HTML = expand(
-    "results/{sample}/raw_fastq_qc/fastq_screen/{sample}_{read}_screen.html",
+    result_path("{sample}/raw_fastq_qc/fastq_screen/{sample}_{read}_screen.html"),
     sample=RAW_FASTQ_SAMPLES,
-    read=["R1", "R2"],
+    read=FASTQ_SCREEN_READS,
 )
 RAW_FASTQ_QC_TARGETS = RAW_FASTQC_HTML + FASTQ_SCREEN_TEXT + FASTQ_SCREEN_HTML
-MULTIQC_REPORT = "results/multiqc/multiqc_report.html"
+MULTIQC_REPORT = result_path("multiqc/multiqc_report.html")
+
+TRAJECTORY_ENABLED = bool(
+    config.get("trajectory", {}).get("run_paga")
+    or config.get("trajectory", {}).get("loom_file")
+)
+TRAJECTORY_H5AD = result_path("merged/09_trajectory/trajectory.h5ad")
+TRAJECTORY_TARGETS = [TRAJECTORY_H5AD] if TRAJECTORY_ENABLED else []
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def get_sample_path(wildcards):
@@ -77,12 +142,53 @@ def get_raw_fastq(wildcards, column):
     return match.iloc[0]
 
 
+def get_screen_fastq(wildcards):
+    return get_raw_fastq(wildcards, f"raw_fastq_{wildcards.read.lower()}")
+
+
+def optional_file(path):
+    return path if _filled(path) else []
+
+
+def cli_option(flag, value):
+    """Return a safely quoted optional CLI pair for Snakemake shell blocks."""
+    return [flag, str(value)] if _filled(value) else []
+
+
+def cli_switch(flag, enabled):
+    return [flag] if enabled else []
+
+
+def marker_condition_options():
+    marker_config = config["markers"]
+    condition_key = marker_config.get("condition_key", "")
+    if not _filled(condition_key):
+        return []
+    return [
+        "--condition-key", str(condition_key),
+        "--group1", str(marker_config.get("group1", "")),
+        "--group2", str(marker_config.get("group2", "")),
+    ]
+
+
+def marker_covariate_options():
+    covariates = config["markers"].get("covariates", []) or []
+    return ["--covariates", *[str(value) for value in covariates]] if covariates else []
+
+
 def use_rep():
     """Determine embedding key based on batch correction choice."""
-    if not config["batch"]["batch_key"]:
+    override = config.get("embedding", {}).get("use_rep") or ""
+    if override:
+        return override
+    if config["batch"]["method"] == "none" or not config["batch"]["batch_key"]:
         return "X_pca"
     method = config["batch"]["method"]
-    return {"harmony": "X_pca_corrected", "scvi": "X_scVI", "combat": "X_pca"}[method]
+    return {
+        "harmony": "X_pca_corrected",
+        "scvi": "X_scVI",
+        "combat": "X_pca_corrected",
+    }[method]
 
 # ── Include rule modules ──────────────────────────────────────────────────────
 include: "rules/raw_fastq_qc.smk"
@@ -103,21 +209,28 @@ rule all:
     input:
         RAW_FASTQ_QC_TARGETS,
         # Per-sample QC + doublet removal
-        expand("results/{sample}/01_doublets/no_doublets.h5ad", sample=SAMPLES),
+        expand(result_path("{sample}/01_doublets/no_doublets.h5ad"), sample=SAMPLES),
         # Merged & normalized
-        "results/merged/02_normalize/normalized.h5ad",
+        result_path("merged/02_normalize/normalized.h5ad"),
         # HVG + PCA
-        "results/merged/03_hvg_pca/hvg_pca.h5ad",
+        result_path("merged/03_hvg_pca/hvg_pca.h5ad"),
         # Batch-corrected (or copy if no batch)
-        "results/merged/04_batch/batch_corrected.h5ad",
+        result_path("merged/04_batch/batch_corrected.h5ad"),
         # Embedding
-        "results/merged/05_embedding/embedded.h5ad",
+        result_path("merged/05_embedding/embedded.h5ad"),
         # Clustering
-        "results/merged/06_cluster/clustered.h5ad",
+        result_path("merged/06_cluster/clustered.h5ad"),
         # Marker genes
-        "results/merged/07_markers/with_markers.h5ad",
+        result_path("merged/07_markers/with_markers.h5ad"),
+        result_path("merged/07_markers/pseudobulk_status.csv"),
+        result_path("merged/07_markers/DE"),
         # Cell type annotation
-        "results/merged/08_annotate/annotated.h5ad",
+        result_path("merged/08_annotate/annotated.h5ad"),
+        result_path("merged/08_annotate/annotation_summary.csv"),
+        result_path("merged/08_annotate/marker_coverage.csv"),
+        result_path("merged/08_annotate/composition_by_sample.csv"),
+        TRAJECTORY_TARGETS,
         # HTML reports
-        "results/report.html",
+        result_path("report.html"),
+        result_path("run_manifest.json"),
         MULTIQC_REPORT,

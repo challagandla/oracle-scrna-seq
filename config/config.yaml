@@ -6,6 +6,19 @@
 
 # ── Input ────────────────────────────────────────────────────
 samples_tsv: "config/samples.tsv"   # sample sheet (see below)
+results_dir: "results"
+logs_dir: "logs"
+random_seed: 42
+
+# Optional scheduler overrides. Rule defaults are declared in workflow/Snakefile.
+# Values are requests, not hard memory limits on a local machine.
+# resources:
+#   qc: {threads: 1, mem_mb: 8000}
+#   markers: {threads: 4, mem_mb: 24000}
+
+provenance:
+  # Full content hashes are strongest but can add minutes for very large inputs.
+  hash_inputs: false
 
 # ── Optional raw FASTQ QC + contamination screening ───────────
 # This pipeline primarily starts from count matrices (.h5ad, 10X .h5, or MEX).
@@ -15,6 +28,8 @@ raw_fastq_qc:
   enabled: true
   fastq_screen_conf: "config/fastq_screen.conf.example"
   fastq_screen_subset: 100000
+  # 10x GEX R1 contains barcode/UMI sequence; screen cDNA R2 by default.
+  fastq_screen_reads: ["R2"]
 
 # ── Species ──────────────────────────────────────────────────
 species: "human"          # "human" or "mouse"
@@ -37,7 +52,7 @@ qc:
 # ── Step 01 — Doublet Detection ──────────────────────────────
 doublets:
   method: "scrublet"      # "scrublet" | "scdblfinder"
-  expected_rate: 0.06     # expected doublet rate per lane (10X: ~0.8% per 1000 cells)
+  expected_rate: 0.06     # prior rate per capture; passed to Scrublet or scDblFinder dbr
 
 # ── Step 02 — Normalization ───────────────────────────────────
 normalization:
@@ -70,11 +85,13 @@ embedding:
 # ── Step 06 — Clustering ─────────────────────────────────────
 clustering:
   resolutions: [0.2, 0.4, 0.6, 0.8, 1.0, 1.2]
-  default_resolution: 0.6   # stored as adata.obs["leiden"]
+  # This is the primary biological choice. Silhouette scores are diagnostics,
+  # not an automatic definition of the "best" cell-type resolution.
+  default_resolution: 0.6
 
 # ── Step 07 — Markers & DE ───────────────────────────────────
 markers:
-  method: "wilcoxon"      # "wilcoxon" | "t-test" | "logreg"
+  method: "wilcoxon"      # "wilcoxon" | "t-test"
   n_genes: 50             # top N marker genes to store per cluster
   logfc_min: 0.25         # minimum log2 fold-change filter
   pct_min: 0.1            # minimum fraction of cells expressing gene
@@ -82,15 +99,26 @@ markers:
   condition_key: ""       # obs column; "" = skip condition DE
   group1: ""              # reference group label
   group2: ""              # test group label
+  covariates: []           # sample-sheet columns, e.g. ["donor"] for paired data
+  min_cells_per_sample: 10
+  min_replicates_per_group: 2  # 3+ is strongly recommended
+  min_total_count: 10
 
 # ── Step 08 — Annotation ─────────────────────────────────────
 annotation:
-  markers_json: ""        # path to custom JSON {cell_type: [gene,…]}; "" = built-in PBMC
+  # Automatic annotation is deliberately opt-in and remains provisional.
+  marker_set: ""           # "" | "human_pbmc" | "mouse_brain"
+  markers_json: ""        # custom JSON {cell_type: [gene,…]}; "" = no custom set
+  min_marker_coverage: 0.5
+  min_score_margin: 0.1
   celltypist: false       # run CellTypist automated classification
   celltypist_model: "Immune_All_Low.pkl"
+  celltypist_min_confidence: 0.5
   manual_tsv: ""          # path to cluster→cell_type TSV; "" = skip
 
 # ── Step 09 — Trajectory (optional) ─────────────────────────
 trajectory:
   run_paga: false
   loom_file: ""           # path to velocyto .loom; "" = skip scVelo
+  barcode_map_tsv: ""     # optional analysis_barcode/loom_barcode mapping TSV
+  min_shared_cells: 100

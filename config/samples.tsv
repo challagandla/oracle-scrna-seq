@@ -1,5 +1,5 @@
-sample	path	batch	condition	description	raw_fastq_r1	raw_fastq_r2
-pbmc_ctrl	data/pbmc_ctrl_raw.h5ad	batch1	control	PBMC donor 1, untreated		
-pbmc_treat	data/pbmc_treat_raw.h5ad	batch1	treated	PBMC donor 1, stimulated		
-brain_s1	data/brain_s1_raw.h5	batch2	WT	Mouse cortex sample 1		
-brain_s2	data/brain_s2_raw.h5	batch2	KO	Mouse cortex sample 2		
+sample	path	species	batch	condition	donor	description
+donor1_control	data/donor1_control_raw.h5ad	human	batch1	control	donor1	Replace with one raw-count matrix per biological sample
+donor2_control	data/donor2_control_raw.h5ad	human	batch2	control	donor2	Replace this demonstration row before running
+donor1_treated	data/donor1_treated_raw.h5ad	human	batch1	treated	donor1	Paired example; donor may be a DE covariate
+donor2_treated	data/donor2_treated_raw.h5ad	human	batch2	treated	donor2	Do not mix species in one run

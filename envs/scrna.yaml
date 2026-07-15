@@ -2,7 +2,7 @@ name: scrna
 channels:
   - conda-forge
   - bioconda
-  - defaults
+  - nodefaults
 dependencies:
   - python=3.11
   - pip
@@ -14,6 +14,8 @@ dependencies:
   - matplotlib>=3.8
   - seaborn>=0.13
   - statsmodels>=0.14
+  - scikit-misc>=0.3
+  - scikit-learn>=1.4
 
   # ── AnnData / scanpy ecosystem ──────────────────────────────
   - anndata>=0.10
@@ -29,6 +31,7 @@ dependencies:
   # ── Snakemake ────────────────────────────────────────────────
   - snakemake-minimal>=8.0
   - snakemake-executor-plugin-cluster-generic
+  - pytest>=8
 
   # ── pip-only packages ────────────────────────────────────────
   - pip:
@@ -37,6 +40,7 @@ dependencies:
 
     # Batch correction
     - harmonypy>=0.0.9
+    - scvi-tools>=1.1
 
     # Differential expression
     - pydeseq2>=0.4.9

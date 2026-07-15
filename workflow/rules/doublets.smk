@@ -4,15 +4,24 @@ Rule: Doublet Detection — per sample
 
 rule doublets:
     input:
-        h5ad = "results/{sample}/00_qc/qc_filtered.h5ad"
+        h5ad = result_path("{sample}/00_qc/qc_filtered.h5ad"),
+        code = [
+            "scripts/01_doublets.py",
+            "scripts/utils/io_utils.py",
+            "scripts/utils/validation.py",
+        ]
     output:
-        h5ad = "results/{sample}/01_doublets/no_doublets.h5ad",
-        figs = directory("results/{sample}/01_doublets/figures")
+        h5ad = result_path("{sample}/01_doublets/no_doublets.h5ad"),
+        figs = directory(result_path("{sample}/01_doublets/figures"))
+    threads: resource_value("doublets", "threads")
+    resources:
+        mem_mb=resource_value("doublets", "mem_mb")
     params:
         method        = config["doublets"]["method"],
         expected_rate = config["doublets"]["expected_rate"],
+        seed          = config.get("random_seed", 42),
     log:
-        "logs/{sample}/01_doublets.log"
+        log_path("{sample}/01_doublets.log")
     conda:
         lambda wildcards: (
             "../../envs/r_env.yaml"
@@ -21,10 +30,12 @@ rule doublets:
         )
     shell:
         """
+        mkdir -p "$(dirname {log:q})"
         python scripts/01_doublets.py \
-            {input.h5ad} \
-            --out $(dirname {output.h5ad}) \
-            --method {params.method} \
+            {input.h5ad:q} \
+            --out "$(dirname {output.h5ad:q})" \
+            --method {params.method:q} \
             --expected-rate {params.expected_rate} \
-        > {log} 2>&1
+            --seed {params.seed} \
+        > {log:q} 2>&1
         """

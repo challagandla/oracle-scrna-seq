@@ -18,18 +18,20 @@ results/<sample>/00_qc/
     06_qc_violin_after.png
 """
 
-import argparse, json, os, sys
+import argparse
+import json
+import os
+import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-import anndata as ad
 import scanpy as sc
-import numpy as np
 
 from utils.io_utils   import load_adata, save_adata
 from utils.qc_utils   import (annotate_qc_vars, calculate_qc_metrics,
                                build_filter_mask, summarise_qc)
 from utils.plot_utils import (plot_knee, plot_qc_violin, plot_qc_histograms,
                                plot_qc_scatter)
+from utils.validation import validate_raw_counts
 
 sc.settings.verbosity = 1
 
@@ -40,6 +42,7 @@ def main(args):
 
     # ── Load ─────────────────────────────────────────────────
     adata = load_adata(args.input)
+    validate_raw_counts(adata, context=args.input)
 
     # ── Knee plot ────────────────────────────────────────────
     # Needs total_counts — do a quick calculation first
@@ -75,6 +78,11 @@ def main(args):
         "min_genes":  args.min_genes,
     }
     pass_mask, thresholds = build_filter_mask(adata, qc_cfg)
+    if not pass_mask.any():
+        raise ValueError(
+            "QC removed every cell. Inspect the pre-filter figures and adjust "
+            "species/gene identifiers or thresholds; do not continue with an empty matrix."
+        )
 
     # Histogram with thresholds
     plot_qc_histograms(
@@ -104,7 +112,10 @@ def main(args):
     adata_f = adata[pass_mask].copy()
 
     # Gene filter
-    sc.pp.filter_genes(adata_f, min_cells=args.min_cells)
+    if args.min_cells > 0:
+        sc.pp.filter_genes(adata_f, min_cells=args.min_cells)
+    else:
+        print("Gene filtering deferred until all samples are merged.")
     print(f"Genes after filter: {adata_f.n_vars:,}")
 
     stats_after = summarise_qc(adata_f, label="After QC")
@@ -138,7 +149,8 @@ if __name__ == "__main__":
     p.add_argument("--mad-genes",    type=float, default=5)
     p.add_argument("--mad-mt",       type=float, default=3)
     p.add_argument("--mt-hard",      type=float, default=8)
-    p.add_argument("--min-cells",    type=int,   default=20)
+    p.add_argument("--min-cells",    type=int,   default=0,
+                   help="Use 0 to defer gene filtering until sample merge (recommended)")
     p.add_argument("--min-counts",   type=int,   default=500)
     p.add_argument("--min-genes",    type=int,   default=200)
     main(p.parse_args())

@@ -14,10 +14,11 @@ results/merged/05_embedding/
     03_umap_sample.png
 """
 
-import argparse, os, sys
+import argparse
+import os
+import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-import anndata as ad
 import scanpy as sc
 
 from utils.io_utils   import load_adata, save_adata
@@ -34,16 +35,19 @@ def main(args):
 
     use_rep = args.use_rep
     if use_rep not in adata.obsm:
-        fallback = "X_pca"
-        print(f"Warning: '{use_rep}' not in adata.obsm; falling back to '{fallback}'")
-        use_rep = fallback
+        raise ValueError(
+            f"Requested representation '{use_rep}' is missing. Available: "
+            f"{sorted(adata.obsm.keys())}. Check batch.method/embedding.use_rep."
+        )
 
+    n_pcs = min(args.n_pcs, adata.obsm[use_rep].shape[1])
     print(f"Building kNN graph: k={args.n_neighbors}, rep={use_rep}, pcs={args.n_pcs}")
     sc.pp.neighbors(adata, n_neighbors=args.n_neighbors,
-                    n_pcs=args.n_pcs, use_rep=use_rep,
-                    metric=args.metric)
+                    n_pcs=n_pcs, use_rep=use_rep,
+                    metric=args.metric, random_state=args.seed)
 
-    sc.tl.umap(adata, min_dist=args.min_dist, spread=args.spread)
+    sc.tl.umap(adata, min_dist=args.min_dist, spread=args.spread,
+               random_state=args.seed)
     print("UMAP computed")
 
     # QC overlays
@@ -79,4 +83,5 @@ if __name__ == "__main__":
     p.add_argument("--min-dist",     type=float, default=0.3)
     p.add_argument("--spread",       type=float, default=1.0)
     p.add_argument("--batch-key",    default="")
+    p.add_argument("--seed",         type=int, default=42)
     main(p.parse_args())

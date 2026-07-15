@@ -1,9 +1,7 @@
 """
 Core QC calculations: metric annotation, MAD filtering, stats.
 """
-import json
 import numpy as np
-import pandas as pd
 import scanpy as sc
 from scipy.stats import median_abs_deviation
 
@@ -27,10 +25,11 @@ def annotate_qc_vars(adata, mt_prefix="MT-", ribo_prefix="RPL,RPS",
 
 def calculate_qc_metrics(adata, **kwargs):
     """Wrapper around sc.pp.calculate_qc_metrics."""
+    percent_top = [n for n in (20, 50, 100, 200) if n < adata.n_vars]
     sc.pp.calculate_qc_metrics(
         adata,
         qc_vars=["mt", "ribo", "hb"],
-        percent_top=[20, 50, 100, 200],  # pct_counts_in_top_N_genes
+        percent_top=percent_top or None,
         log1p=False,
         inplace=True,
     )

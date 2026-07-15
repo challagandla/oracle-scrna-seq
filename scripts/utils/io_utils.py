@@ -1,5 +1,6 @@
 """I/O helpers — loading .h5ad and 10X .h5 files."""
 import os
+import tempfile
 import anndata as ad
 import scanpy as sc
 
@@ -23,6 +24,18 @@ def load_adata(path: str) -> ad.AnnData:
 
 
 def save_adata(adata: ad.AnnData, path: str):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    adata.write_h5ad(path)
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{os.path.basename(path)}.",
+        suffix=".tmp.h5ad",
+        dir=directory,
+    )
+    os.close(descriptor)
+    try:
+        adata.write_h5ad(temporary)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
     print(f"Saved:  {path}")

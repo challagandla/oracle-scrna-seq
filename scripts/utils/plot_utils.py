@@ -7,8 +7,6 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-import seaborn as sns
 import scanpy as sc
 
 PALETTE = "tab20"
@@ -29,7 +27,7 @@ def plot_qc_violin(adata, metrics, title, path):
     fig, axes = plt.subplots(1, n, figsize=(4 * n, 4))
     if n == 1:
         axes = [axes]
-    for ax, m in zip(axes, metrics):
+    for ax, m in zip(axes, metrics, strict=True):
         data = adata.obs[m].dropna()
         ax.violinplot(data, showmedians=True)
         ax.set_title(m.replace("_", " "), fontsize=9)
@@ -63,7 +61,7 @@ def plot_qc_histograms(adata, metrics, thresholds, path):
     fig, axes = plt.subplots(1, n, figsize=(4.5 * n, 3.5))
     if n == 1:
         axes = [axes]
-    for ax, m in zip(axes, metrics):
+    for ax, m in zip(axes, metrics, strict=True):
         vals = adata.obs[m].dropna()
         ax.hist(vals, bins=60, color="steelblue", edgecolor="none", alpha=0.7)
         t = thresholds.get(m, {})
@@ -102,15 +100,19 @@ def plot_elbow(adata, n_pcs_use, path):
 
     axes[0].plot(range(1, len(vr) + 1), vr, "o-", ms=3, lw=1)
     axes[0].axvline(n_pcs_use, color="red", ls="--", label=f"n_pcs={n_pcs_use}")
-    axes[0].set_xlabel("PC"); axes[0].set_ylabel("Variance ratio")
-    axes[0].set_title("Elbow plot"); axes[0].legend()
+    axes[0].set_xlabel("PC")
+    axes[0].set_ylabel("Variance ratio")
+    axes[0].set_title("Elbow plot")
+    axes[0].legend()
 
     axes[1].plot(range(1, len(cum) + 1), cum, "o-", ms=3, lw=1)
     axes[1].axhline(80, color="orange", ls="--", alpha=0.7, label="80%")
     axes[1].axhline(90, color="red",    ls="--", alpha=0.7, label="90%")
     axes[1].axvline(n_pcs_use, color="blue", ls="--", label=f"n_pcs={n_pcs_use}")
-    axes[1].set_xlabel("PC"); axes[1].set_ylabel("Cumulative variance (%)")
-    axes[1].set_title("Cumulative variance"); axes[1].legend(fontsize=7)
+    axes[1].set_xlabel("PC")
+    axes[1].set_ylabel("Cumulative variance (%)")
+    axes[1].set_title("Cumulative variance")
+    axes[1].legend(fontsize=7)
 
     plt.tight_layout()
     return _savefig(fig, path)
@@ -141,13 +143,19 @@ def plot_umap_grid(adata, color_keys, path, ncols=3, title=""):
 
 # ── Clustering ───────────────────────────────────────────────────────────────
 
-def plot_silhouette(df, best_res, path):
+def plot_silhouette(df, configured_res, path):
     valid = df["silhouette"].dropna()
     fig, ax = plt.subplots(figsize=(5, 3))
     ax.plot(valid.index, valid.values, "o-", lw=1.5)
-    ax.axvline(best_res, color="red", ls="--", label=f"best={best_res}")
-    ax.set_xlabel("Resolution"); ax.set_ylabel("Mean silhouette score")
-    ax.set_title("Leiden resolution selection")
+    ax.axvline(
+        configured_res,
+        color="red",
+        ls="--",
+        label=f"configured={configured_res}",
+    )
+    ax.set_xlabel("Resolution")
+    ax.set_ylabel("Mean silhouette score")
+    ax.set_title("Leiden resolution diagnostics")
     ax.legend()
     plt.tight_layout()
     return _savefig(fig, path)
